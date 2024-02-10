@@ -41,3 +41,32 @@ class MBConvBlock(nn.Module):
             x += identity
 
         return x
+
+class FusedMBConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, expansion_factor=1, se_ratio=None):
+        super(FusedMBConvBlock, self).__init__()
+        self.use_se = se_ratio is not None and se_ratio > 0
+        mid_channels = in_channels * expansion_factor
+
+        self.conv = nn.Conv2d(in_channels, mid_channels, kernel_size, stride=stride, padding=kernel_size//2, bias=False)
+        self.bn = nn.BatchNorm2d(mid_channels)
+        self.relu = nn.ReLU(inplace=True)
+
+        if self.use_se:
+            num_squeezed_channels = max(1, int(in_channels * se_ratio))
+            self.se = SqueezeExcitation(mid_channels, num_squeezed_channels)
+
+        self.project_conv = nn.Conv2d(mid_channels, out_channels, 1, stride=1, padding=0, bias=False)
+        self.project_bn = nn.BatchNorm2d(out_channels)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+
+        if self.use_se:
+            x = self.se(x)
+
+        x = self.project_conv(x)
+        x = self.project_bn(x)
+        return x
